@@ -3,6 +3,7 @@ import type { User } from '@supabase/supabase-js';
 import type { DataSource } from '../lib/api';
 import { uploadSource, connectSource, deleteSource } from '../lib/api';
 import { X, Upload, Database, Trash2, FileSpreadsheet, Server, CheckCircle, AlertCircle, LogIn } from 'lucide-react';
+import { ConfirmModal } from './ConfirmModal';
 
 interface SourceManagerProps {
   isOpen: boolean;
@@ -96,16 +97,31 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this data source?')) return;
+    setConfirmModalState({ isOpen: true, sourceId: id });
+  };
+
+  const confirmDelete = async () => {
+    if (!confirmModalState.sourceId) return;
     try {
-      await deleteSource(id);
+      await deleteSource(confirmModalState.sourceId);
       onRefreshSources();
     } catch (err: any) {
       alert(err.message || 'Failed to delete source');
+    } finally {
+      setConfirmModalState({ isOpen: false, sourceId: null });
     }
   };
 
   return (
+    <>
+    <ConfirmModal 
+      isOpen={confirmModalState.isOpen}
+      title="Delete Data Source"
+      message="Are you sure you want to delete this data source? This action cannot be undone."
+      confirmText="Delete"
+      onConfirm={confirmDelete}
+      onClose={() => setConfirmModalState({ isOpen: false, sourceId: null })}
+    />
     <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(8px)' }}>
       <div className="glass-panel" style={{ width: '100%', maxWidth: '650px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: '24px', position: 'relative', overflow: 'hidden' }}>
         

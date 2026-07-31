@@ -3,6 +3,7 @@ import { fetchDashboards, createDashboard, fetchDashboardWidgets, deleteDashboar
 import type { Dashboard as IDashboard, DashboardWidget } from '../lib/api';
 import { LayoutDashboard, Plus, Loader2, BarChart2, Table as TableIcon, Trash2, Hash, MapPin, TrendingUp, Activity, PieChart as PieChartIcon } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, AreaChart, Area, ScatterChart, Scatter, ZAxis, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { ConfirmModal } from './ConfirmModal';
 
 const COLORS = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
 const TOOLTIP_STYLE = { background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '12px', color: '#e2e8f0' };
@@ -16,6 +17,12 @@ export const Dashboard: React.FC = () => {
   const [loadingWidgets, setLoadingWidgets] = useState<Record<string, boolean>>({});
   const [newDashboardName, setNewDashboardName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    type: 'dashboard' | 'widget';
+    id: string | null;
+    name?: string;
+  }>({ isOpen: false, type: 'dashboard', id: null });
 
   useEffect(() => {
     loadDashboards();
@@ -104,12 +111,21 @@ export const Dashboard: React.FC = () => {
 
   const handleDeleteDashboard = async () => {
     if (!selectedDashboard) return;
-    if (!window.confirm(`Are you sure you want to delete the dashboard "${selectedDashboard.name}" and all its widgets?`)) return;
+    setConfirmModal({
+      isOpen: true,
+      type: 'dashboard',
+      id: selectedDashboard.id,
+      name: selectedDashboard.name
+    });
+  };
+
+  const confirmDeleteDashboard = async (id: string) => {
     try {
-      await deleteDashboard(selectedDashboard.id);
-      const updated = dashboards.filter(d => d.id !== selectedDashboard.id);
+      await deleteDashboard(id);
+      const updated = dashboards.filter(d => d.id !== id);
       setDashboards(updated);
       setSelectedDashboard(updated.length > 0 ? updated[0] : null);
+      setConfirmModal({ ...confirmModal, isOpen: false });
     } catch (err) {
       console.error(err);
       alert('Failed to delete dashboard');
@@ -118,13 +134,30 @@ export const Dashboard: React.FC = () => {
 
   const handleDeleteWidget = async (widgetId: string) => {
     if (!selectedDashboard) return;
-    if (!window.confirm('Remove this widget from the dashboard?')) return;
+    setConfirmModal({
+      isOpen: true,
+      type: 'widget',
+      id: widgetId
+    });
+  };
+
+  const confirmDeleteWidget = async (widgetId: string) => {
+    if (!selectedDashboard) return;
     try {
       await deleteDashboardWidget(selectedDashboard.id, widgetId);
       setWidgets(widgets.filter(w => w.id !== widgetId));
+      setConfirmModal({ ...confirmModal, isOpen: false });
     } catch (err) {
       console.error(err);
       alert('Failed to delete widget');
+    }
+  };
+
+  const confirmAction = () => {
+    if (confirmModal.type === 'dashboard' && confirmModal.id) {
+      confirmDeleteDashboard(confirmModal.id);
+    } else if (confirmModal.type === 'widget' && confirmModal.id) {
+      confirmDeleteWidget(confirmModal.id);
     }
   };
 
@@ -272,6 +305,18 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div style={{ maxWidth: '1280px', margin: '24px auto', padding: '0 24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.type === 'dashboard' ? 'Delete Dashboard' : 'Remove Widget'}
+        message={
+          confirmModal.type === 'dashboard' 
+            ? `Are you sure you want to delete the dashboard "${confirmModal.name}" and all its widgets?`
+            : 'Are you sure you want to remove this widget from the dashboard?'
+        }
+        confirmText="Delete"
+        onConfirm={confirmAction}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false, id: null })}
+      />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <LayoutDashboard size={24} color="#6366f1" />

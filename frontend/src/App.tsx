@@ -7,6 +7,7 @@ import { SourceManager } from './components/SourceManager';
 import { QueryHistoryModal } from './components/QueryHistoryModal';
 import { QueryWorkspace } from './components/QueryWorkspace';
 import { Dashboard } from './components/Dashboard';
+import { StartupLoader } from './components/StartupLoader';
 import { LayoutDashboard, Terminal } from 'lucide-react';
 import type {
   DataSource,
@@ -27,6 +28,10 @@ export function App() {
   const [sources, setSources] = useState<DataSource[]>([]);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  
+  // App startup states
+  const [startupStatus, setStartupStatus] = useState<'loading' | 'retrying' | 'degraded' | 'ready'>('loading');
+
   const [sampleQuestions, setSampleQuestions] = useState<string[]>([]);
   const [activeQuestion, setActiveQuestion] = useState('');
 
@@ -59,9 +64,37 @@ export function App() {
     };
   }, []);
 
-  // Fetch health on mount
+  // Poll health on mount to handle cold starts
   useEffect(() => {
-    fetchHealth().then(setHealth).catch(console.error);
+    let isCancelled = false;
+    let retryTimeout: NodeJS.Timeout;
+
+    const checkHealth = async () => {
+      try {
+        const res = await fetchHealth();
+        if (isCancelled) return;
+        setHealth(res);
+        if (res.status === 'healthy') {
+          setStartupStatus('ready');
+        } else {
+          setStartupStatus('degraded');
+          // If degraded, it might still be starting, check again in 5s
+          retryTimeout = setTimeout(checkHealth, 5000);
+        }
+      } catch (err) {
+        if (isCancelled) return;
+        setStartupStatus('retrying');
+        // Retry connection every 3 seconds
+        retryTimeout = setTimeout(checkHealth, 3000);
+      }
+    };
+
+    checkHealth();
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(retryTimeout);
+    };
   }, []);
 
   // Fetch sample questions when active source changes
@@ -128,6 +161,10 @@ export function App() {
     setActiveSourceId(null);
     setSources([]);
   };
+
+  if (startupStatus !== 'ready') {
+    return <StartupLoader status={startupStatus} />;
+  }
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
