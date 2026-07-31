@@ -10,6 +10,11 @@ any keyword rules.
 Migration note: Replaces FAISS with ChromaDB for vector storage.
 Each data source gets its own Chroma collection, preventing cross-source
 contamination.
+
+Embedding providers:
+  - "local"  (default): Uses sentence-transformers + PyTorch locally.
+  - "openrouter": Calls OpenRouter API (for cloud deployment on low-memory hosts).
+  Set EMBEDDING_PROVIDER env var to switch.
 """
 
 import os
@@ -19,6 +24,7 @@ import logging
 from typing import Optional
 
 import numpy as np
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +37,14 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 # Default collection name for the built-in Northwind database
 NORTHWIND_COLLECTION = "src_northwind"
 
+# Embedding provider config — read from env vars
+_EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "local").lower()
+_OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+_OPENROUTER_EMBEDDING_MODEL = os.getenv("OPENROUTER_EMBEDDING_MODEL", "baai/bge-base-en-v1.5")
+
 
 def _get_transformer(model_name: str = "all-MiniLM-L6-v2"):
-    """Lazy-load the SentenceTransformer model.
+    """Lazy-load the SentenceTransformer model (local provider only).
 
     Args:
         model_name: HuggingFace model name.
@@ -52,6 +63,81 @@ def _get_transformer(model_name: str = "all-MiniLM-L6-v2"):
         logger.info(f"Loading embedding model: {model_name}")
         _get_transformer._models[model_name] = _SentenceTransformer(model_name)
     return _get_transformer._models[model_name]
+
+
+def _embed_via_openrouter(texts: list[str]) -> list[list[float]]:
+    """Generate embeddings using the OpenRouter API.
+
+    Sends texts to the OpenRouter /embeddings endpoint and returns
+    the resulting vectors. Used for cloud deployment on low-memory hosts
+    (e.g., Render free tier) where PyTorch cannot be loaded.
+
+    Args:
+        texts: List of strings to embed.
+
+    Returns:
+        List of embedding vectors (list of floats).
+
+    Raises:
+        RuntimeError: If the API call fails.
+    """
+    if not _OPENROUTER_API_KEY:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not set. "
+            "Set it in your .env file or switch EMBEDDING_PROVIDER to 'local'."
+        )
+
+    url = "https://openrouter.ai/api/v1/embeddings"
+    headers = {
+        "Authorization": f"Bearer {_OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": _OPENROUTER_EMBEDDING_MODEL,
+        "input": texts,
+    }
+
+    logger.info(
+        f"Calling OpenRouter embeddings API ({_OPENROUTER_EMBEDDING_MODEL}) "
+        f"for {len(texts)} text(s)..."
+    )
+
+    response = requests.post(url, headers=headers, json=payload, timeout=60)
+
+    if response.status_code != 200:
+        error_detail = response.text[:500]
+        raise RuntimeError(
+            f"OpenRouter embeddings API error ({response.status_code}): {error_detail}"
+        )
+
+    data = response.json()
+    # OpenRouter returns {"data": [{"embedding": [...], "index": 0}, ...] }
+    embeddings = [item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])]
+    logger.info(f"Received {len(embeddings)} embeddings from OpenRouter (dim={len(embeddings[0])}).")
+    return embeddings
+
+
+def _embed_texts(texts: list[str], model_name: str = "all-MiniLM-L6-v2") -> list[list[float]]:
+    """Unified embedding dispatcher.
+
+    Routes to the configured provider:
+      - "openrouter": Uses OpenRouter API (no local GPU/memory needed).
+      - "local" (default): Uses sentence-transformers locally.
+
+    Args:
+        texts: List of strings to embed.
+        model_name: Model name for the local provider.
+
+    Returns:
+        List of embedding vectors.
+    """
+    if _EMBEDDING_PROVIDER == "openrouter":
+        return _embed_via_openrouter(texts)
+    else:
+        # Default: local SentenceTransformer
+        model = _get_transformer(model_name)
+        embeddings = model.encode(texts, normalize_embeddings=True, show_progress_bar=True)
+        return [emb.tolist() for emb in embeddings]
 
 
 def _get_chroma_client():
@@ -156,7 +242,6 @@ def build_schema_index(
         Schema hash string for the indexed schema.
     """
     client = _get_chroma_client()
-    model = _get_transformer(embedding_model)
 
     schemas = db_connector.get_all_schemas()
     table_names = list(schemas.keys())
@@ -182,8 +267,7 @@ def build_schema_index(
         metadata_list.append(meta)
 
     logger.info(f"Embedding {len(enriched)} table schemas for collection '{collection_name}'...")
-    embeddings = model.encode(enriched, normalize_embeddings=True, show_progress_bar=True)
-    embeddings_list = [emb.tolist() for emb in embeddings]
+    embeddings_list = _embed_texts(enriched, embedding_model)
 
     # Delete existing collection if it exists, then recreate
     try:
@@ -238,7 +322,6 @@ def retrieve_relevant_schemas(
         ValueError: If the collection doesn't exist.
     """
     client = _get_chroma_client()
-    model = _get_transformer(embedding_model)
 
     try:
         collection = client.get_collection(name=collection_name)
@@ -253,9 +336,9 @@ def retrieve_relevant_schemas(
     if actual_k == 0:
         return ""
 
-    query_embedding = model.encode([query], normalize_embeddings=True)
+    query_embedding = _embed_texts([query], embedding_model)
     results = collection.query(
-        query_embeddings=[query_embedding[0].tolist()],
+        query_embeddings=[query_embedding[0]],
         n_results=actual_k,
         include=["metadatas", "distances"],
     )
