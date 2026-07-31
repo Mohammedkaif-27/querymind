@@ -72,6 +72,10 @@ def _embed_via_openrouter(texts: list[str]) -> list[list[float]]:
     the resulting vectors. Used for cloud deployment on low-memory hosts
     (e.g., Render free tier) where PyTorch cannot be loaded.
 
+    Each text is truncated to fit within the embedding model's context
+    window (bge-base-en-v1.5 supports ~512 tokens ≈ 8K characters).
+    Texts are sent one at a time to avoid total-input-length limits.
+
     Args:
         texts: List of strings to embed.
 
@@ -79,13 +83,21 @@ def _embed_via_openrouter(texts: list[str]) -> list[list[float]]:
         List of embedding vectors (list of floats).
 
     Raises:
-        RuntimeError: If the API call fails.
+        RuntimeError: If the API call fails after retries.
     """
     if not _OPENROUTER_API_KEY:
         raise RuntimeError(
             "OPENROUTER_API_KEY is not set. "
             "Set it in your .env file or switch EMBEDDING_PROVIDER to 'local'."
         )
+
+    import time
+
+    # bge-base-en-v1.5 context window is 512 tokens.
+    # ~1 token ≈ 4 chars on average, so 512 * 4 = 2048 chars is the safe max.
+    # We use 2000 as a conservative limit.
+    MAX_CHARS = 2000
+    MAX_RETRIES = 3
 
     url = "https://openrouter.ai/api/v1/embeddings"
     headers = {
@@ -101,28 +113,51 @@ def _embed_via_openrouter(texts: list[str]) -> list[list[float]]:
     all_embeddings: list[list[float]] = []
 
     for i, text in enumerate(texts):
-        # Truncate individual texts to stay safely under the API limit
-        truncated = text[:80_000] if len(text) > 80_000 else text
+        # Truncate to fit model context window
+        truncated = text[:MAX_CHARS]
 
         payload = {
             "model": _OPENROUTER_EMBEDDING_MODEL,
             "input": truncated,
         }
 
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        # Retry logic for transient API failures
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=60)
 
-        if response.status_code != 200:
-            error_detail = response.text[:500]
-            raise RuntimeError(
-                f"OpenRouter embeddings API error ({response.status_code}): {error_detail}"
-            )
-
-        data = response.json()
-        embedding = data["data"][0]["embedding"]
-        all_embeddings.append(embedding)
+                if response.status_code == 200:
+                    data = response.json()
+                    embedding = data["data"][0]["embedding"]
+                    all_embeddings.append(embedding)
+                    break
+                elif response.status_code == 429:
+                    # Rate limited — wait and retry
+                    wait = 2 ** attempt
+                    logger.warning(f"Rate limited on text {i+1}, retrying in {wait}s...")
+                    time.sleep(wait)
+                else:
+                    error_detail = response.text[:300]
+                    if attempt < MAX_RETRIES - 1:
+                        logger.warning(
+                            f"API error on text {i+1} (attempt {attempt+1}): "
+                            f"{response.status_code} — retrying..."
+                        )
+                        time.sleep(1)
+                    else:
+                        raise RuntimeError(
+                            f"OpenRouter embeddings API error ({response.status_code}): "
+                            f"{error_detail}"
+                        )
+            except requests.exceptions.RequestException as e:
+                if attempt < MAX_RETRIES - 1:
+                    logger.warning(f"Network error on text {i+1}: {e} — retrying...")
+                    time.sleep(2 ** attempt)
+                else:
+                    raise RuntimeError(f"OpenRouter API network error: {e}")
 
     logger.info(
-        f"Received {len(all_embeddings)} total embeddings from OpenRouter "
+        f"✅ Received {len(all_embeddings)} embeddings from OpenRouter "
         f"(dim={len(all_embeddings[0])})."
     )
     return all_embeddings
