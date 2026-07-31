@@ -69,8 +69,13 @@ graph TD
 
 ### Dynamic Ingestion & Multi-Source Support
 - **Zero local disk dependency** — uploaded CSV/XLSX files are parsed in-memory, backed up to Supabase Storage, and ingested into a dedicated `user_data` schema in Supabase Postgres.
-- **External DB connections** — connect external PostgreSQL or MySQL databases via connection URI.
-- **Namespaced vector storage** — each data source gets an isolated ChromaDB collection (`src_<uuid>`) to prevent cross-dataset context contamination.
+- **External DB connections** — connect external PostgreSQL or MySQL databases via connection URI (supports Supabase IPv4 connection poolers).
+- **Namespaced vector storage & auto-rebuilding** — each data source gets an isolated ChromaDB collection (`src_<uuid>`). If ephemeral server restarts wipe vector storage, collections auto-rebuild on-the-fly.
+
+### UX, Cold-Start & System Health
+- **Cold start overlay** — full-screen glassmorphic loading screen during backend wake-up or degraded health states.
+- **Custom UI dialogs** — custom glassmorphic confirmation modals replacing basic browser alerts/prompts.
+- **PyTorch-free cloud embeddings** — native integration with OpenRouter API (`bge-base-en-v1.5`) for lightweight, low-memory cloud hosting.
 
 ### SQL Validation & Hardening Pipeline
 - **Multi-dialect aware** — formats queries for SQLite, PostgreSQL, or MySQL.
@@ -203,9 +208,12 @@ cp .env.example .env
 | `SUPABASE_ANON_KEY` | ✅ | Supabase anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Supabase service role key (backend only) |
 | `SUPABASE_JWT_SECRET` | ✅ | Supabase JWT secret for token verification |
-| `SUPABASE_DB_URL` | ✅ | Direct Postgres connection URI for dynamic table creation |
+| `SUPABASE_DB_URL` | ✅ | Direct or Pooler Postgres connection URI for dynamic table creation |
+| `EMBEDDING_PROVIDER` | ❌ | Vector embedding provider (`openrouter` or `local`, default: `openrouter`) |
+| `OPENROUTER_API_KEY` | ❌ | API key for OpenRouter embeddings |
+| `OPENROUTER_EMBEDDING_MODEL` | ❌ | Embedding model on OpenRouter (default: `baai/bge-base-en-v1.5`) |
 | `DB_PATH` | ❌ | Path to local SQLite demo database (default: `data/northwind.db`) |
-| `EMBEDDING_MODEL` | ❌ | Sentence-transformer model (default: `all-MiniLM-L6-v2`) |
+| `EMBEDDING_MODEL` | ❌ | Sentence-transformer model for local provider (default: `all-MiniLM-L6-v2`) |
 | `TOP_K_TABLES` | ❌ | Number of tables to retrieve via vector search (default: `3`) |
 | `MAX_RETRIES` | ❌ | Self-correction retry attempts (default: `3`) |
 | `RESULT_LIMIT` | ❌ | Default row limit for query results (default: `100`) |
@@ -252,11 +260,13 @@ querymind/
 │       │   └── supabase.ts   # Supabase JS client
 │       └── components/
 │           ├── AuthModal.tsx          # Login & registration dialog
+│           ├── ConfirmModal.tsx       # Custom glassmorphic confirmation modal
 │           ├── Dashboard.tsx          # Saved dashboard & widget viewer
 │           ├── Navbar.tsx             # Navigation & health status badge
 │           ├── QueryHistoryModal.tsx  # User query history drawer
 │           ├── QueryWorkspace.tsx     # Search box, SQL viewer, table & charts
-│           └── SourceManager.tsx      # CSV upload & DB URI connection modal
+│           ├── SourceManager.tsx      # CSV upload & DB URI connection modal
+│           └── StartupLoader.tsx      # Cold-start full-screen loading overlay
 │
 ├── eval/
 │   ├── test_cases.json       # 20-question benchmark suite
@@ -307,6 +317,7 @@ querymind/
 1. Go to [render.com](https://render.com) → **New → Web Service → Connect your GitHub repo**.
 2. Set **Environment** to `Docker`, **Dockerfile Path** to `./Dockerfile.backend`.
 3. Add environment variables from `.env.example`.
+   > 💡 **Note on `SUPABASE_DB_URL`:** On Render free tier (IPv4 network), use Supabase's **Session/Transaction Connection Pooler** string (e.g. `postgresql://postgres.<project_ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres`) with percent-encoded special characters to avoid IPv6 connection issues.
 4. Deploy — Render provides a public URL.
 
 **Frontend — Static Site:**
@@ -368,7 +379,9 @@ Key design decisions worth highlighting:
 
 1. **Supabase Postgres for uploaded CSVs** — Writing to dynamic schemas (`user_data.src_<id>`) centralizes persistence, removes stateless backend volume management, and enables RLS isolation.
 
-2. **Per-source ChromaDB collections** — Namespacing collections per source (`src_<uuid>`) prevents cross-dataset context leak and allows instant deletion by dropping the collection.
+2. **Per-source ChromaDB collections & Auto-rebuilding** — Namespacing collections per source (`src_<uuid>`) prevents cross-dataset context leak. In ephemeral hosting environments, missing collections are automatically rebuilt from table schemas on demand.
+
+3. **OpenRouter Embedding API Integration** — Enables ultra-lightweight cloud containers by delegating text embeddings to OpenRouter (`baai/bge-base-en-v1.5`), eliminating PyTorch dependencies and reducing RAM footprint to under 250MB.
 
 3. **Defense-in-depth SQL security**:
    - **Layer 1 — Prompt Engineering**: Dialect-specific system prompts instruct the LLM to write read-only queries.
