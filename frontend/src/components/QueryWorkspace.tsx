@@ -55,6 +55,12 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
     }
   }, [isSaveModalOpen]);
 
+  useEffect(() => {
+    if (queryResponse) {
+      setChartVariant(getInitialChartVariant());
+    }
+  }, [queryResponse]);
+
   const loadDashboards = async () => {
     try {
       const data = await fetchDashboards();
@@ -237,13 +243,15 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
       const labelCol = queryResponse.columns.find(c => c !== numCol);
       const val = data[0][numCol];
       const label = labelCol ? data[0][labelCol] : numCol;
+      const displayVal = val === null || val === undefined ? 'N/A' : (typeof val === 'number' ? val.toLocaleString() : val);
+      
       return (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '380px' }}>
           <div style={{ fontSize: '16px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>
             {label}
           </div>
           <div style={{ fontSize: '72px', fontWeight: 800, background: 'linear-gradient(135deg, #38bdf8, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            {typeof val === 'number' ? val.toLocaleString() : val}
+            {displayVal}
           </div>
         </div>
       );
@@ -392,8 +400,6 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
             e.preventDefault();
             if (activeQuestion.trim()) {
               onExecuteQuery(activeQuestion);
-              // Auto-set chart variant from backend on new query
-              setChartVariant(getInitialChartVariant());
             }
           }}
           style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
