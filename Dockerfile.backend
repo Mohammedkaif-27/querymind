@@ -1,0 +1,31 @@
+# Dockerfile for FastAPI Backend
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system build dependencies if needed (e.g. for C extensions / g++ / git)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy & install Python requirements
+COPY requirements.txt .
+# Force CPU-only PyTorch to save ~4-5GB of image size
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements.txt
+
+# Copy application code and database assets
+COPY backend/ ./backend/
+COPY data/ ./data/
+COPY embeddings/ ./embeddings/
+
+# Expose FastAPI port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Start FastAPI server via Uvicorn
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

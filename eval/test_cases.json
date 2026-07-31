@@ -1,0 +1,228 @@
+[
+  {
+    "id": "Q01",
+    "question": "How many customers are there in total?",
+    "difficulty": "easy",
+    "expected_tables": ["Customers"],
+    "expected_row_count": 1,
+    "result_check": {
+      "type": "value_gte",
+      "column_index": 0,
+      "min_value": 80
+    }
+  },
+  {
+    "id": "Q02",
+    "question": "List all product categories",
+    "difficulty": "easy",
+    "expected_tables": ["Categories"],
+    "expected_row_count_range": [5, 20],
+    "result_check": {
+      "type": "column_exists",
+      "column_name_pattern": "category"
+    }
+  },
+  {
+    "id": "Q03",
+    "question": "Which country had the most orders?",
+    "difficulty": "medium",
+    "expected_tables": ["Orders", "Customers"],
+    "expected_row_count_range": [1, 30],
+    "result_check": {
+      "type": "column_exists",
+      "column_name_pattern": "country"
+    }
+  },
+  {
+    "id": "Q04",
+    "question": "What are the top 5 products by total revenue?",
+    "difficulty": "medium",
+    "expected_tables": ["Products", "Order Details"],
+    "expected_row_count": 5,
+    "result_check": {
+      "type": "has_numeric_column",
+      "min_columns": 1
+    }
+  },
+  {
+    "id": "Q05",
+    "question": "How many orders were placed in 1997?",
+    "difficulty": "easy",
+    "expected_tables": ["Orders"],
+    "expected_row_count": 1,
+    "result_check": {
+      "type": "value_gte",
+      "column_index": 0,
+      "min_value": 100
+    }
+  },
+  {
+    "id": "Q06",
+    "question": "What is the average unit price of all products?",
+    "difficulty": "easy",
+    "expected_tables": ["Products"],
+    "expected_row_count": 1,
+    "result_check": {
+      "type": "value_gte",
+      "column_index": 0,
+      "min_value": 10
+    }
+  },
+  {
+    "id": "Q07",
+    "question": "Which employee processed the most orders?",
+    "difficulty": "medium",
+    "expected_tables": ["Employees", "Orders"],
+    "expected_row_count_range": [1, 10],
+    "result_check": {
+      "type": "has_numeric_column",
+      "min_columns": 1
+    }
+  },
+  {
+    "id": "Q08",
+    "question": "List all suppliers from the USA",
+    "difficulty": "easy",
+    "expected_tables": ["Suppliers"],
+    "expected_row_count_range": [1, 20],
+    "result_check": {
+      "type": "row_count_gte",
+      "min_rows": 1
+    }
+  },
+  {
+    "id": "Q09",
+    "question": "What are the monthly sales totals for 1997?",
+    "difficulty": "hard",
+    "expected_tables": ["Orders", "Order Details"],
+    "expected_row_count_range": [10, 12],
+    "result_check": {
+      "type": "has_numeric_column",
+      "min_columns": 1
+    }
+  },
+  {
+    "id": "Q10",
+    "question": "Which product category generates the highest revenue?",
+    "difficulty": "hard",
+    "expected_tables": ["Categories", "Products", "Order Details"],
+    "expected_row_count_range": [1, 10],
+    "result_check": {
+      "type": "has_numeric_column",
+      "min_columns": 1
+    }
+  },
+  {
+    "id": "Q11",
+    "question": "How many orders were shipped late (ShippedDate after RequiredDate)?",
+    "difficulty": "medium",
+    "expected_tables": ["Orders"],
+    "expected_row_count": 1,
+    "result_check": {
+      "type": "value_gte",
+      "column_index": 0,
+      "min_value": 1
+    }
+  },
+  {
+    "id": "Q12",
+    "question": "What is the average order value per customer?",
+    "difficulty": "hard",
+    "expected_tables": ["Customers", "Orders", "Order Details"],
+    "expected_row_count_range": [10, 100],
+    "result_check": {
+      "type": "has_numeric_column",
+      "min_columns": 1
+    }
+  },
+  {
+    "id": "Q13",
+    "question": "List the top 3 shipping companies by number of orders handled",
+    "difficulty": "medium",
+    "expected_tables": ["Shippers", "Orders"],
+    "expected_row_count": 3,
+    "result_check": {
+      "type": "has_numeric_column",
+      "min_columns": 1
+    }
+  },
+  {
+    "id": "Q14",
+    "question": "How many products are discontinued?",
+    "difficulty": "easy",
+    "expected_tables": ["Products"],
+    "expected_row_count": 1,
+    "result_check": {
+      "type": "value_gte",
+      "column_index": 0,
+      "min_value": 1
+    }
+  },
+  {
+    "id": "Q15",
+    "question": "Which customers have placed more than 10 orders?",
+    "difficulty": "medium",
+    "expected_tables": ["Customers", "Orders"],
+    "expected_row_count_range": [1, 50],
+    "result_check": {
+      "type": "has_numeric_column",
+      "min_columns": 1
+    }
+  },
+  {
+    "id": "Q16",
+    "question": "What is the total freight cost for orders shipped to Germany?",
+    "difficulty": "medium",
+    "expected_tables": ["Orders"],
+    "expected_row_count": 1,
+    "result_check": {
+      "type": "value_gte",
+      "column_index": 0,
+      "min_value": 100
+    }
+  },
+  {
+    "id": "Q17",
+    "question": "Show the order count by quarter for 1996",
+    "difficulty": "hard",
+    "expected_tables": ["Orders"],
+    "expected_row_count_range": [2, 4],
+    "result_check": {
+      "type": "has_numeric_column",
+      "min_columns": 1
+    }
+  },
+  {
+    "id": "Q18",
+    "question": "Which region has the most employees?",
+    "difficulty": "medium",
+    "expected_tables": ["Employees"],
+    "expected_row_count_range": [1, 10],
+    "result_check": {
+      "type": "row_count_gte",
+      "min_rows": 1
+    }
+  },
+  {
+    "id": "Q19",
+    "question": "What is the most expensive product and its unit price?",
+    "difficulty": "easy",
+    "expected_tables": ["Products"],
+    "expected_row_count_range": [1, 5],
+    "result_check": {
+      "type": "has_numeric_column",
+      "min_columns": 1
+    }
+  },
+  {
+    "id": "Q20",
+    "question": "Show the total revenue per year across all orders",
+    "difficulty": "hard",
+    "expected_tables": ["Orders", "Order Details"],
+    "expected_row_count_range": [2, 5],
+    "result_check": {
+      "type": "has_numeric_column",
+      "min_columns": 1
+    }
+  }
+]
