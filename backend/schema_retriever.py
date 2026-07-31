@@ -92,29 +92,64 @@ def _embed_via_openrouter(texts: list[str]) -> list[list[float]]:
         "Authorization": f"Bearer {_OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
     }
-    payload = {
-        "model": _OPENROUTER_EMBEDDING_MODEL,
-        "input": texts,
-    }
+
+    # Batch texts to stay under API character limit (131072 chars).
+    # We use 120K as a safe threshold to leave room for JSON overhead.
+    MAX_CHARS_PER_BATCH = 120_000
+    batches: list[list[str]] = []
+    current_batch: list[str] = []
+    current_chars = 0
+
+    for text in texts:
+        text_len = len(text)
+        if current_batch and current_chars + text_len > MAX_CHARS_PER_BATCH:
+            batches.append(current_batch)
+            current_batch = []
+            current_chars = 0
+        current_batch.append(text)
+        current_chars += text_len
+
+    if current_batch:
+        batches.append(current_batch)
 
     logger.info(
         f"Calling OpenRouter embeddings API ({_OPENROUTER_EMBEDDING_MODEL}) "
-        f"for {len(texts)} text(s)..."
+        f"for {len(texts)} text(s) in {len(batches)} batch(es)..."
     )
 
-    response = requests.post(url, headers=headers, json=payload, timeout=60)
+    all_embeddings: list[list[float]] = []
 
-    if response.status_code != 200:
-        error_detail = response.text[:500]
-        raise RuntimeError(
-            f"OpenRouter embeddings API error ({response.status_code}): {error_detail}"
+    for batch_idx, batch in enumerate(batches):
+        payload = {
+            "model": _OPENROUTER_EMBEDDING_MODEL,
+            "input": batch,
+        }
+
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+
+        if response.status_code != 200:
+            error_detail = response.text[:500]
+            raise RuntimeError(
+                f"OpenRouter embeddings API error ({response.status_code}): {error_detail}"
+            )
+
+        data = response.json()
+        # OpenRouter returns {"data": [{"embedding": [...], "index": 0}, ...] }
+        batch_embeddings = [
+            item["embedding"]
+            for item in sorted(data["data"], key=lambda x: x["index"])
+        ]
+        all_embeddings.extend(batch_embeddings)
+        logger.info(
+            f"  Batch {batch_idx + 1}/{len(batches)}: "
+            f"{len(batch_embeddings)} embeddings received."
         )
 
-    data = response.json()
-    # OpenRouter returns {"data": [{"embedding": [...], "index": 0}, ...] }
-    embeddings = [item["embedding"] for item in sorted(data["data"], key=lambda x: x["index"])]
-    logger.info(f"Received {len(embeddings)} embeddings from OpenRouter (dim={len(embeddings[0])}).")
-    return embeddings
+    logger.info(
+        f"Received {len(all_embeddings)} total embeddings from OpenRouter "
+        f"(dim={len(all_embeddings[0])})."
+    )
+    return all_embeddings
 
 
 def _embed_texts(texts: list[str], model_name: str = "all-MiniLM-L6-v2") -> list[list[float]]:
