@@ -93,36 +93,20 @@ def _embed_via_openrouter(texts: list[str]) -> list[list[float]]:
         "Content-Type": "application/json",
     }
 
-    # Batch texts to stay under API character limit (131072 chars).
-    # We use 120K as a safe threshold to leave room for JSON overhead.
-    MAX_CHARS_PER_BATCH = 120_000
-    batches: list[list[str]] = []
-    current_batch: list[str] = []
-    current_chars = 0
-
-    for text in texts:
-        text_len = len(text)
-        if current_batch and current_chars + text_len > MAX_CHARS_PER_BATCH:
-            batches.append(current_batch)
-            current_batch = []
-            current_chars = 0
-        current_batch.append(text)
-        current_chars += text_len
-
-    if current_batch:
-        batches.append(current_batch)
-
     logger.info(
         f"Calling OpenRouter embeddings API ({_OPENROUTER_EMBEDDING_MODEL}) "
-        f"for {len(texts)} text(s) in {len(batches)} batch(es)..."
+        f"for {len(texts)} text(s)..."
     )
 
     all_embeddings: list[list[float]] = []
 
-    for batch_idx, batch in enumerate(batches):
+    for i, text in enumerate(texts):
+        # Truncate individual texts to stay safely under the API limit
+        truncated = text[:80_000] if len(text) > 80_000 else text
+
         payload = {
             "model": _OPENROUTER_EMBEDDING_MODEL,
-            "input": batch,
+            "input": truncated,
         }
 
         response = requests.post(url, headers=headers, json=payload, timeout=60)
@@ -134,16 +118,8 @@ def _embed_via_openrouter(texts: list[str]) -> list[list[float]]:
             )
 
         data = response.json()
-        # OpenRouter returns {"data": [{"embedding": [...], "index": 0}, ...] }
-        batch_embeddings = [
-            item["embedding"]
-            for item in sorted(data["data"], key=lambda x: x["index"])
-        ]
-        all_embeddings.extend(batch_embeddings)
-        logger.info(
-            f"  Batch {batch_idx + 1}/{len(batches)}: "
-            f"{len(batch_embeddings)} embeddings received."
-        )
+        embedding = data["data"][0]["embedding"]
+        all_embeddings.append(embedding)
 
     logger.info(
         f"Received {len(all_embeddings)} total embeddings from OpenRouter "
