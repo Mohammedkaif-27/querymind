@@ -179,6 +179,10 @@ class DatabaseConnector:
             for table in self.get_all_table_names()
         }
 
+    def get_full_schema_ddl(self) -> str:
+        """Return full schema formatted string for all tables."""
+        return "\n".join(self.get_all_schemas().values())
+
     def get_sample_rows(self, table_name: str, n: int = 3) -> pd.DataFrame:
         """Get sample rows from a table.
 
