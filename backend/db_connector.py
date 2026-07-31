@@ -8,7 +8,7 @@ Other modules never touch the database directly — they go through this module.
 import logging
 from typing import Optional
 import pandas as pd
-from sqlalchemy import create_engine, text, inspect
+from sqlalchemy import create_engine, text, inspect, event
 from sqlalchemy.exc import SQLAlchemyError
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,18 @@ class DatabaseConnector:
             uri = uri.replace("postgresql://", "postgresql+pg8000://", 1)
 
         instance.engine = create_engine(uri, **engine_kwargs)
+
+        if schema and "postgresql" in uri:
+            target_schema = schema
+            @event.listens_for(instance.engine, "connect")
+            def set_search_path(dbapi_connection, connection_record):
+                try:
+                    cursor = dbapi_connection.cursor()
+                    cursor.execute(f"SET search_path TO {target_schema}, public")
+                    cursor.close()
+                except Exception as err:
+                    logger.warning(f"Could not set search_path to {target_schema}: {err}")
+
         instance._verify_connection()
         return instance
 
@@ -240,6 +252,14 @@ class DatabaseConnector:
         Returns:
             Number of rows written.
         """
+        if schema:
+            try:
+                with self.engine.connect() as conn:
+                    conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema};"))
+                    conn.commit()
+            except Exception:
+                pass
+
         rows = df.to_sql(
             name=table_name,
             con=self.engine,
