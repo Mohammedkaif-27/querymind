@@ -118,6 +118,8 @@ class DatabaseConnector:
                     conn.execute(
                         text(f"SET LOCAL statement_timeout = '{timeout_seconds * 1000}'")
                     )
+                    if getattr(self, "_schema", None):
+                        conn.execute(text(f"SET LOCAL search_path = {self._schema}, public"))
                 elif dialect == "mysql":
                     conn.execute(
                         text(f"SET SESSION MAX_EXECUTION_TIME = {timeout_seconds * 1000}")
