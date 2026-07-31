@@ -404,13 +404,24 @@ Do not explain the SQL. Just answer the question naturally."""
             except ValueError as e:
                 if "not found" in str(e).lower() and db is not None:
                     logger.warning(f"Chroma collection missing on query. Rebuilding {collection_name} on the fly...")
-                    ensure_index_exists(db, collection_name, config.embedding_model)
-                    schema = retrieve_relevant_schemas(
-                        question,
-                        collection_name=collection_name,
-                        embedding_model=config.embedding_model,
-                        top_k=config.top_k_tables,
-                    )
+                    try:
+                        ensure_index_exists(db, collection_name, config.embedding_model)
+                        schema = retrieve_relevant_schemas(
+                            question,
+                            collection_name=collection_name,
+                            embedding_model=config.embedding_model,
+                            top_k=config.top_k_tables,
+                        )
+                    except ValueError as inner_e:
+                        logger.error(f"Failed to auto-rebuild schema: {inner_e}")
+                        return AgentResponse(
+                            question=question,
+                            sql="",
+                            result_df=pd.DataFrame(),
+                            narration="",
+                            chart_type="none",
+                            error=str(inner_e)
+                        )
                 else:
                     raise e
             prompt = build_sql_prompt(

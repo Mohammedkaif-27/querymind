@@ -105,6 +105,9 @@ def _embed_via_openrouter(texts: list[str]) -> list[list[float]]:
         "Content-Type": "application/json",
     }
 
+    if not texts:
+        return []
+
     logger.info(
         f"Calling OpenRouter embeddings API ({_OPENROUTER_EMBEDDING_MODEL}) "
         f"for {len(texts)} text(s)..."
@@ -313,6 +316,9 @@ def build_schema_index(
         metadata_list.append(meta)
 
     logger.info(f"Embedding {len(enriched)} table schemas for collection '{collection_name}'...")
+    if not enriched:
+        raise ValueError(f"No tables found for collection {collection_name}. If this was a custom upload on a free-tier host, the local database file may have been wiped during a server restart. Please delete this data source and re-upload it.")
+
     embeddings_list = _embed_texts(enriched, embedding_model)
 
     # Delete existing collection if it exists, then recreate
