@@ -36,6 +36,8 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  const [confirmModalState, setConfirmModalState] = useState<{isOpen: boolean, sourceId: string | null}>({isOpen: false, sourceId: null});
+
   if (!isOpen) return null;
 
   const handleFileUpload = async (e: React.FormEvent) => {
@@ -292,5 +294,6 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
 
       </div>
     </div>
+    </>
   );
-};
+}

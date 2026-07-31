@@ -67,7 +67,7 @@ export function App() {
   // Poll health on mount to handle cold starts
   useEffect(() => {
     let isCancelled = false;
-    let retryTimeout: NodeJS.Timeout;
+    let retryTimeout: ReturnType<typeof setTimeout>;
 
     const checkHealth = async () => {
       try {
