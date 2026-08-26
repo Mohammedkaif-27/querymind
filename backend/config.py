@@ -18,6 +18,8 @@ class Config:
     groq_api_key: str
     groq_model: str
     embedding_model: str
+    reranker_model: str
+    huggingface_api_key: str
     top_k_tables: int
     max_retries: int
     result_limit: int
@@ -71,8 +73,10 @@ class Config:
         return cls(
             groq_api_key=api_key,
             db_path=db_path,
-            groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            embedding_model=os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
+            groq_model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
+            embedding_model=os.getenv("EMBEDDING_MODEL", "BAAI/bge-large-en-v1.5"),
+            reranker_model=os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base"),
+            huggingface_api_key=os.getenv("HUGGINGFACE_API_KEY", ""),
             top_k_tables=int(os.getenv("TOP_K_TABLES", "3")),
             max_retries=int(os.getenv("MAX_RETRIES", "3")),
             result_limit=int(os.getenv("RESULT_LIMIT", "100")),

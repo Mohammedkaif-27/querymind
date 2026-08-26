@@ -25,6 +25,7 @@ from typing import Optional
 
 import numpy as np
 import requests
+from backend.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +38,6 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 # Default collection name for the built-in Northwind database
 NORTHWIND_COLLECTION = "src_northwind"
 
-# Embedding provider config — read from env vars
-_EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "local").lower()
-_OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-_OPENROUTER_EMBEDDING_MODEL = os.getenv("OPENROUTER_EMBEDDING_MODEL", "baai/bge-base-en-v1.5")
 
 
 def _get_transformer(model_name: str = "all-MiniLM-L6-v2"):
@@ -65,128 +62,75 @@ def _get_transformer(model_name: str = "all-MiniLM-L6-v2"):
     return _get_transformer._models[model_name]
 
 
-def _embed_via_openrouter(texts: list[str]) -> list[list[float]]:
-    """Generate embeddings using the OpenRouter API.
-
-    Sends texts to the OpenRouter /embeddings endpoint and returns
-    the resulting vectors. Used for cloud deployment on low-memory hosts
-    (e.g., Render free tier) where PyTorch cannot be loaded.
-
-    Each text is truncated to fit within the embedding model's context
-    window (bge-base-en-v1.5 supports ~512 tokens ≈ 8K characters).
-    Texts are sent one at a time to avoid total-input-length limits.
-
-    Args:
-        texts: List of strings to embed.
-
-    Returns:
-        List of embedding vectors (list of floats).
-
-    Raises:
-        RuntimeError: If the API call fails after retries.
-    """
-    if not _OPENROUTER_API_KEY:
-        raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. "
-            "Set it in your .env file or switch EMBEDDING_PROVIDER to 'local'."
-        )
-
+def _embed_via_huggingface(texts: list[str], model: str) -> list[list[float]]:
     import time
-
-    # bge-base-en-v1.5 context window is 512 tokens.
-    # ~1 token ≈ 4 chars on average, so 512 * 4 = 2048 chars is the safe max.
-    # We use 2000 as a conservative limit.
-    MAX_CHARS = 2000
+    if not config.huggingface_api_key:
+        raise RuntimeError("HUGGINGFACE_API_KEY is not set.")
+    url = f"https://router.huggingface.co/hf-inference/models/{model}/pipeline/feature-extraction"
+    headers = {"Authorization": f"Bearer {config.huggingface_api_key}", "Content-Type": "application/json"}
+    all_embeddings = []
     MAX_RETRIES = 3
-
-    url = "https://openrouter.ai/api/v1/embeddings"
-    headers = {
-        "Authorization": f"Bearer {_OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    if not texts:
-        return []
-
-    logger.info(
-        f"Calling OpenRouter embeddings API ({_OPENROUTER_EMBEDDING_MODEL}) "
-        f"for {len(texts)} text(s)..."
-    )
-
-    all_embeddings: list[list[float]] = []
-
     for i, text in enumerate(texts):
-        # Truncate to fit model context window
-        truncated = text[:MAX_CHARS]
-
-        payload = {
-            "model": _OPENROUTER_EMBEDDING_MODEL,
-            "input": truncated,
-        }
-
-        # Retry logic for transient API failures
         for attempt in range(MAX_RETRIES):
             try:
-                response = requests.post(url, headers=headers, json=payload, timeout=60)
-
+                response = requests.post(url, headers=headers, json={"inputs": text}, timeout=60)
                 if response.status_code == 200:
                     data = response.json()
-                    embedding = data["data"][0]["embedding"]
-                    all_embeddings.append(embedding)
+                    # HuggingFace might return 1D, 2D or 3D lists depending on the model.
+                    if isinstance(data, list) and len(data) > 0 and isinstance(data[0], list):
+                        all_embeddings.append(data[0]) # usually returns [sequence_len, hidden_size] or [1, hidden_size], just take the first or average?
+                    elif isinstance(data, list):
+                        all_embeddings.append(data)
                     break
-                elif response.status_code == 429:
-                    # Rate limited — wait and retry
-                    wait = 2 ** attempt
-                    logger.warning(f"Rate limited on text {i+1}, retrying in {wait}s...")
-                    time.sleep(wait)
+                elif response.status_code == 503:
+                    logger.warning(f"Model is loading, retrying in 5s...")
+                    time.sleep(5)
                 else:
-                    error_detail = response.text[:300]
                     if attempt < MAX_RETRIES - 1:
-                        logger.warning(
-                            f"API error on text {i+1} (attempt {attempt+1}): "
-                            f"{response.status_code} — retrying..."
-                        )
-                        time.sleep(1)
+                        time.sleep(2 ** attempt)
                     else:
-                        raise RuntimeError(
-                            f"OpenRouter embeddings API error ({response.status_code}): "
-                            f"{error_detail}"
-                        )
-            except requests.exceptions.RequestException as e:
+                        raise RuntimeError(f"HF API error: {response.text}")
+            except Exception as e:
                 if attempt < MAX_RETRIES - 1:
-                    logger.warning(f"Network error on text {i+1}: {e} — retrying...")
                     time.sleep(2 ** attempt)
                 else:
-                    raise RuntimeError(f"OpenRouter API network error: {e}")
-
-    logger.info(
-        f"✅ Received {len(all_embeddings)} embeddings from OpenRouter "
-        f"(dim={len(all_embeddings[0])})."
-    )
+                    raise RuntimeError(f"Network error: {e}")
     return all_embeddings
 
+def _rerank_via_huggingface(query: str, texts: list[str], model: str) -> list[float]:
+    import time
+    if not config.huggingface_api_key or not texts:
+        return [0.0] * len(texts)
+    url = f"https://router.huggingface.co/hf-inference/models/{model}"
+    headers = {"Authorization": f"Bearer {config.huggingface_api_key}", "Content-Type": "application/json"}
+    MAX_RETRIES = 3
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = requests.post(url, headers=headers, json={"inputs": {"source_sentence": query, "sentences": texts}}, timeout=60)
+            if response.status_code == 200:
+                data = response.json()
+                # Assuming returns a list of scores
+                if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict) and "score" in data[0]:
+                    return [d["score"] for d in data]
+                elif isinstance(data, list):
+                    return data
+            elif response.status_code == 503:
+                time.sleep(5)
+            else:
+                if attempt == MAX_RETRIES - 1:
+                    logger.warning(f"HF Reranker API error: {response.text}")
+                    return [0.0] * len(texts)
+                time.sleep(2 ** attempt)
+        except Exception as e:
+            if attempt == MAX_RETRIES - 1:
+                logger.warning(f"Reranker network error: {e}")
+                return [0.0] * len(texts)
+            time.sleep(2 ** attempt)
+    return [0.0] * len(texts)
 
 def _embed_texts(texts: list[str], model_name: str = "all-MiniLM-L6-v2") -> list[list[float]]:
-    """Unified embedding dispatcher.
-
-    Routes to the configured provider:
-      - "openrouter": Uses OpenRouter API (no local GPU/memory needed).
-      - "local" (default): Uses sentence-transformers locally.
-
-    Args:
-        texts: List of strings to embed.
-        model_name: Model name for the local provider.
-
-    Returns:
-        List of embedding vectors.
-    """
-    if _EMBEDDING_PROVIDER == "openrouter":
-        return _embed_via_openrouter(texts)
-    else:
-        # Default: local SentenceTransformer
-        model = _get_transformer(model_name)
-        embeddings = model.encode(texts, normalize_embeddings=True, show_progress_bar=True)
-        return [emb.tolist() for emb in embeddings]
+    # Use HuggingFace API if it's the default HF model or if API key is present and model doesn't look like local only
+    return _embed_via_huggingface(texts, model_name)
 
 
 def _get_chroma_client():
@@ -383,30 +327,39 @@ def retrieve_relevant_schemas(
             "Build the schema index first."
         )
 
-    # Ensure we don't request more results than documents in the collection
-    actual_k = min(top_k, collection.count())
-    if actual_k == 0:
+    # Fetch more candidates for reranking
+    fetch_k = min(top_k * 3, collection.count())
+    if fetch_k == 0:
         return ""
 
     query_embedding = _embed_texts([query], embedding_model)
     results = collection.query(
         query_embeddings=[query_embedding[0]],
-        n_results=actual_k,
-        include=["metadatas", "distances"],
+        n_results=fetch_k,
+        include=["metadatas", "documents", "distances"],
     )
 
+    metas = results["metadatas"][0]
+    docs = results["documents"][0]
+    
+    # Rerank
+    scores = _rerank_via_huggingface(query, docs, config.reranker_model)
+    
+    # Sort by score descending
+    scored_results = sorted(zip(metas, scores), key=lambda x: x[1], reverse=True)
+    
+    top_results = scored_results[:top_k]
+
     retrieved = []
-    for rank, (meta, distance) in enumerate(
-        zip(results["metadatas"][0], results["distances"][0])
-    ):
+    for rank, (meta, score) in enumerate(top_results):
         retrieved.append(meta["schema"])
         logger.debug(
-            f"  Rank {rank+1}: {meta['table']} (distance={distance:.4f})"
+            f"  Rank {rank+1}: {meta['table']} (score={score:.4f})"
         )
 
     logger.info(
         f"Schema retrieval for '{query[:60]}' → "
-        f"{[m['table'] for m in results['metadatas'][0]]}"
+        f"{[m['table'] for m, s in top_results]}"
     )
 
     return "\n".join(retrieved)

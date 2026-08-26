@@ -41,7 +41,7 @@ graph TD
     end
 
     subgraph External["Cloud Services"]
-        Groq["Groq API — Llama 3.3 70B"]
+        Groq["Groq API — openai/gpt-oss-120b"]
         SupaDB["Supabase Postgres"]
         SupaAuth["Supabase Auth & RLS"]
         SupaStore["Supabase Storage"]
@@ -72,10 +72,14 @@ graph TD
 - **External DB connections** — connect external PostgreSQL or MySQL databases via connection URI (supports Supabase IPv4 connection poolers).
 - **Namespaced vector storage & auto-rebuilding** — each data source gets an isolated ChromaDB collection (`src_<uuid>`). If ephemeral server restarts wipe vector storage, collections auto-rebuild on-the-fly.
 
-### UX, Cold-Start & System Health
+### 🧠 Advanced RAG & AI Pipeline
+- **Two-Stage Schema Retrieval** — Implements a state-of-the-art Retrieval-Augmented Generation (RAG) pipeline. It first retrieves candidate table schemas using dense vector search (`BAAI/bge-large-en-v1.5`), then performs highly precise cross-encoder reranking (`BAAI/bge-reranker-base`) before injecting context into the LLM.
+- **PyTorch-Free Cloud Embeddings** — Native integration with the Hugging Face Inference API (`router.huggingface.co`) delegates all heavy ML operations to the cloud, eliminating PyTorch dependencies and reducing Docker RAM footprint to under 250MB.
+- **Bleeding-Edge SQL Generation** — Powered by `openai/gpt-oss-120b` (via Groq/Hugging Face) for incredibly fast, nuanced, and dialect-aware SQL generation that rivals enterprise models.
+
+### ☁️ Cloud Architecture & Zero-Cost Scaling
 - **Cold start overlay** — full-screen glassmorphic loading screen during backend wake-up or degraded health states.
-- **Custom UI dialogs** — custom glassmorphic confirmation modals replacing basic browser alerts/prompts.
-- **PyTorch-free cloud embeddings** — native integration with OpenRouter API (`bge-base-en-v1.5`) for lightweight, low-memory cloud hosting.
+- **Zero-Cost Cloud Persistence Strategy** — The `/health` endpoint actively executes a lightweight `SELECT` query against the Supabase database. By attaching a free cron service (like UptimeRobot) to this endpoint, the system simultaneously prevents ephemeral backends (Render/Railway) from sleeping *and* continuously resets Supabase's 7-day inactivity timer—keeping the entire cloud stack permanently alive on the free tier.
 
 ### SQL Validation & Hardening Pipeline
 - **Multi-dialect aware** — formats queries for SQLite, PostgreSQL, or MySQL.
@@ -203,17 +207,17 @@ cp .env.example .env
 | Variable | Required | Description |
 |---|---|---|
 | `GROQ_API_KEY` | ✅ | API key from [console.groq.com](https://console.groq.com) |
-| `GROQ_MODEL` | ❌ | LLM model name (default: `llama-3.3-70b-versatile`) |
+| `GROQ_MODEL` | ❌ | LLM model name (default: `openai/gpt-oss-120b`) |
 | `SUPABASE_URL` | ✅ | Your Supabase project URL |
 | `SUPABASE_ANON_KEY` | ✅ | Supabase anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Supabase service role key (backend only) |
 | `SUPABASE_JWT_SECRET` | ✅ | Supabase JWT secret for token verification |
 | `SUPABASE_DB_URL` | ✅ | Direct or Pooler Postgres connection URI for dynamic table creation |
-| `EMBEDDING_PROVIDER` | ❌ | Vector embedding provider (`openrouter` or `local`, default: `openrouter`) |
-| `OPENROUTER_API_KEY` | ❌ | API key for OpenRouter embeddings |
-| `OPENROUTER_EMBEDDING_MODEL` | ❌ | Embedding model on OpenRouter (default: `baai/bge-base-en-v1.5`) |
+| `EMBEDDING_PROVIDER` | ❌ | Vector embedding provider (`huggingface` or `local`, default: `huggingface`) |
+| `HUGGINGFACE_API_KEY` | ❌ | API key for Hugging Face embeddings |
+| `HUGGINGFACE_EMBEDDING_MODEL` | ❌ | Embedding model on Hugging Face (default: `BAAI/bge-large-en-v1.5`) |
 | `DB_PATH` | ❌ | Path to local SQLite demo database (default: `data/northwind.db`) |
-| `EMBEDDING_MODEL` | ❌ | Sentence-transformer model for local provider (default: `all-MiniLM-L6-v2`) |
+| `EMBEDDING_MODEL` | ❌ | Sentence-transformer model for local provider (default: `BAAI/bge-large-en-v1.5`) |
 | `TOP_K_TABLES` | ❌ | Number of tables to retrieve via vector search (default: `3`) |
 | `MAX_RETRIES` | ❌ | Self-correction retry attempts (default: `3`) |
 | `RESULT_LIMIT` | ❌ | Default row limit for query results (default: `100`) |
@@ -381,7 +385,7 @@ Key design decisions worth highlighting:
 
 2. **Per-source ChromaDB collections & Auto-rebuilding** — Namespacing collections per source (`src_<uuid>`) prevents cross-dataset context leak. In ephemeral hosting environments, missing collections are automatically rebuilt from table schemas on demand.
 
-3. **OpenRouter Embedding API Integration** — Enables ultra-lightweight cloud containers by delegating text embeddings to OpenRouter (`baai/bge-base-en-v1.5`), eliminating PyTorch dependencies and reducing RAM footprint to under 250MB.
+3. **Hugging Face API Integration** — Enables ultra-lightweight cloud containers by delegating text embeddings to Hugging Face (`BAAI/bge-large-en-v1.5`), eliminating PyTorch dependencies and reducing RAM footprint to under 250MB.
 
 3. **Defense-in-depth SQL security**:
    - **Layer 1 — Prompt Engineering**: Dialect-specific system prompts instruct the LLM to write read-only queries.
