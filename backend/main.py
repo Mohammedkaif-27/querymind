@@ -206,7 +206,7 @@ class QueryHistoryItem(BaseModel):
 # System endpoints (no auth required)
 # ──────────────────────────────────────────────
 
-@app.get("/health", tags=["System"])
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["System"])
 def health_check():
     """Check API, database, ChromaDB, and Supabase connectivity."""
     components = {}
