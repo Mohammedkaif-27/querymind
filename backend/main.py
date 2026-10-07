@@ -231,17 +231,7 @@ def health_check():
     else:
         components["database"] = {"status": "no_local_db"}
 
-    # 3. Supabase check
-    try:
-        sb = get_supabase_client()
-        sb.table("data_sources").select("id").limit(1).execute()
-        components["supabase"] = {"status": "ok"}
-    except Exception as e:
-        logger.error(f"Supabase health check failed: {e}")
-        components["supabase"] = {"status": "error", "error": str(e)}
-        is_healthy = False
-
-    # 4. ChromaDB check
+    # 3. ChromaDB check
     chroma_health = health_check_chroma()
     components["chroma"] = chroma_health
     if chroma_health.get("status") != "ok":

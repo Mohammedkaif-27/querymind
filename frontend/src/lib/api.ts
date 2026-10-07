@@ -53,7 +53,6 @@ export interface HealthResponse {
     api: { status: string; version: string };
     llm: { status: string; model: string };
     database: { status: string; dialect?: string; table_count?: number };
-    supabase: { status: string };
     chroma: { status: string; collections?: number };
   };
 }

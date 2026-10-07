@@ -81,7 +81,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
 
           {/* Health indicator badge */}
-          <div className={`badge ${isHealthy ? 'badge-success' : 'badge-warning'}`} title={`Supabase: ${health?.components.supabase.status}, Chroma: ${health?.components.chroma.status}`}>
+          <div className={`badge ${isHealthy ? 'badge-success' : 'badge-warning'}`} title={`DB: ${health?.components.database.status}, Chroma: ${health?.components.chroma.status}`}>
             <Activity size={12} />
             <span>{isHealthy ? 'System Healthy' : 'Degraded'}</span>
           </div>

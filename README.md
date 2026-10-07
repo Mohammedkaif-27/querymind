@@ -79,7 +79,6 @@ graph TD
 
 ### ☁️ Cloud Architecture & Zero-Cost Scaling
 - **Cold start overlay** — full-screen glassmorphic loading screen during backend wake-up or degraded health states.
-- **Zero-Cost Cloud Persistence Strategy** — The `/health` endpoint actively executes a lightweight `SELECT` query against the Supabase database. By attaching a free cron service (like UptimeRobot) to this endpoint, the system simultaneously prevents ephemeral backends (Render/Railway) from sleeping *and* continuously resets Supabase's 7-day inactivity timer—keeping the entire cloud stack permanently alive on the free tier.
 
 ### SQL Validation & Hardening Pipeline
 - **Multi-dialect aware** — formats queries for SQLite, PostgreSQL, or MySQL.
