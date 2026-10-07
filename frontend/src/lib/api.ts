@@ -23,6 +23,8 @@ export interface QueryResponse {
   retries: number;
   latency_ms: number;
   row_count: number;
+  confidence_score: number;
+  eval_reasoning: string;
 }
 
 export interface DataSource {

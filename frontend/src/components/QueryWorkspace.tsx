@@ -478,6 +478,16 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
               {queryResponse.retries > 0 && (
                 <span className="badge badge-warning">Self-corrected retries: {queryResponse.retries}</span>
               )}
+              {queryResponse.confidence_score > 0 && (
+                <span
+                  className={`badge ${queryResponse.confidence_score >= 80 ? 'badge-success' : queryResponse.confidence_score >= 50 ? 'badge-warning' : 'badge-error'}`}
+                  title={queryResponse.eval_reasoning || 'Query accuracy evaluation'}
+                  style={{ cursor: 'help', display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <Sparkles size={12} />
+                  Confidence: {queryResponse.confidence_score}%
+                </span>
+              )}
             </div>
 
             {/* View tab switchers and Save */}
@@ -523,6 +533,17 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
               <div>
                 <h4 style={{ fontSize: '13px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>AI Narration</h4>
                 <p style={{ fontSize: '14px', color: '#f8fafc', marginTop: '2px' }}>{queryResponse.narration}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Eval reasoning — shown when confidence is below 80% */}
+          {queryResponse.eval_reasoning && queryResponse.confidence_score > 0 && queryResponse.confidence_score < 80 && (
+            <div className="glass-panel" style={{ padding: '12px 20px', borderLeft: '4px solid #f59e0b', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <AlertTriangle size={18} color="#f59e0b" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <h4 style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Accuracy Warning</h4>
+                <p style={{ fontSize: '13px', color: '#cbd5e1', marginTop: '2px' }}>{queryResponse.eval_reasoning}</p>
               </div>
             </div>
           )}

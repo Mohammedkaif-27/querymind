@@ -146,6 +146,8 @@ class QueryResponse(BaseModel):
     retries: int
     latency_ms: float
     row_count: int
+    confidence_score: int = 0
+    eval_reasoning: str = ""
 
 
 # -- Dashboards --

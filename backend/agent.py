@@ -41,6 +41,8 @@ class AgentResponse:
     error: str = ""
     retries: int = 0
     latency_ms: float = 0.0
+    confidence_score: int = 0       # 0-100 eval score
+    eval_reasoning: str = ""        # Brief justification of the score
 
     def to_dict(self) -> dict:
         """Serialize to JSON-safe dict (DataFrame → list of records)."""
@@ -55,6 +57,8 @@ class AgentResponse:
             "retries": self.retries,
             "latency_ms": round(self.latency_ms, 1),
             "row_count": len(self.result_df),
+            "confidence_score": self.confidence_score,
+            "eval_reasoning": self.eval_reasoning,
         }
 
 
@@ -96,6 +100,9 @@ SQL: SELECT strftime('%m', OrderDate) AS Month, COUNT(*) AS OrderCount FROM Orde
 
 Question: Which employees have processed more than 50 orders?
 SQL: SELECT e.FirstName || ' ' || e.LastName AS EmployeeName, COUNT(o.OrderID) AS OrderCount FROM Employees e JOIN Orders o ON e.EmployeeID = o.EmployeeID GROUP BY e.EmployeeID HAVING OrderCount > 50 ORDER BY OrderCount DESC
+
+Question: What is the overall profit margin for each product category?
+SQL: SELECT c.CategoryName, ROUND(SUM(od.UnitPrice * od.Quantity - p.UnitCost * od.Quantity) / NULLIF(SUM(od.UnitPrice * od.Quantity), 0), 2) AS ProfitMargin FROM Categories c JOIN Products p ON c.CategoryID = p.CategoryID JOIN "Order Details" od ON p.ProductID = od.ProductID GROUP BY c.CategoryID, c.CategoryName ORDER BY ProfitMargin DESC
 </examples>"""
 
 
@@ -109,6 +116,9 @@ SQL: SELECT EXTRACT(MONTH FROM "OrderDate")::int AS "Month", COUNT(*) AS "OrderC
 
 Question: Which employees have processed more than 50 orders?
 SQL: SELECT e."FirstName" || ' ' || e."LastName" AS "EmployeeName", COUNT(o."OrderID") AS "OrderCount" FROM "Employees" e JOIN "Orders" o ON e."EmployeeID" = o."EmployeeID" GROUP BY e."EmployeeID", e."FirstName", e."LastName" HAVING COUNT(o."OrderID") > 50 ORDER BY "OrderCount" DESC
+
+Question: What is the overall profit margin for each product category?
+SQL: SELECT c."CategoryName", ROUND((SUM(od."UnitPrice" * od."Quantity" - p."UnitCost" * od."Quantity") / NULLIF(SUM(od."UnitPrice" * od."Quantity"), 0))::numeric, 2) AS "ProfitMargin" FROM "Categories" c JOIN "Products" p ON c."CategoryID" = p."CategoryID" JOIN "Order Details" od ON p."ProductID" = od."ProductID" GROUP BY c."CategoryID", c."CategoryName" ORDER BY "ProfitMargin" DESC
 </examples>"""
 
 
@@ -124,7 +134,12 @@ def _get_dialect_rules(dialect: str = "sqlite") -> str:
     common = [
         "- Write ONLY a single SELECT statement. Never use DROP, DELETE, UPDATE, INSERT, ALTER, or TRUNCATE.",
         "- Use explicit JOIN ... ON syntax, never implicit comma joins.",
-        "- For currency/price calculations, wrap in ROUND(..., 2).",
+        "- Prevent integer division by multiplying numerators by 1.0 before dividing (e.g. SUM(A)*1.0/SUM(B)).",
+        "- Calculate aggregate ratios correctly: use SUM(A)/SUM(B) instead of AVG(A/B) for overall margins or ratios.",
+        "- Prevent division by zero errors by using NULLIF(denominator, 0) or an equivalent safe division technique.",
+        "- Handle potential NULL values in math operations using COALESCE(col, 0).",
+        "- For string matching/filtering, assume case-insensitivity is needed unless exact match is implied.",
+        "- Always quote table and column names if they contain spaces or are reserved keywords.",
         "- Return ONLY the SQL query. No explanation. No markdown. No semicolon at the end.",
         f"- Always use LIMIT {config.result_limit} unless the question asks for all records.",
     ]
@@ -135,18 +150,21 @@ def _get_dialect_rules(dialect: str = "sqlite") -> str:
             "- Use double quotes for column/table names that need quoting.",
             "- For type casting, use :: syntax (e.g. value::numeric).",
             "- Use CONCAT() or || for string concatenation.",
+            "- Use ILIKE for case-insensitive string matching.",
         ]
     elif dialect == "mysql":
         specific = [
             "- For date filtering, use YEAR(DateCol) = 1997, MONTH(DateCol), etc.",
             "- Use backticks for quoting identifiers: `table_name`.",
             "- Use CONCAT() for string concatenation.",
+            "- String comparisons are generally case-insensitive by default in MySQL.",
         ]
     else:  # sqlite
         specific = [
             "- Use table aliases (e.g. o for Orders, od for \"Order Details\", c for Customers).",
             '- Wrap table names that contain spaces in double quotes: "Order Details".',
             "- For date filtering, use SQLite functions: strftime('%Y', OrderDate) = '1997'.",
+            "- Use LOWER(col) LIKE LOWER('%str%') for case-insensitive string matching (SQLite doesn't have ILIKE).",
         ]
 
     return "\n".join(common + specific)
@@ -354,6 +372,75 @@ Do not explain the SQL. Just answer the question naturally."""
             prompt,
         )
 
+    def evaluate_query(self, question: str, sql: str, schema: str, df: pd.DataFrame) -> tuple[int, str]:
+        """Evaluate how well the generated SQL aligns with the user's question.
+
+        Uses an LLM-as-judge pattern to score the query on multiple dimensions.
+
+        Args:
+            question: Original user question.
+            sql: The generated and executed SQL.
+            schema: The database schema context used for generation.
+            df: The result DataFrame.
+
+        Returns:
+            Tuple of (score 0-100, brief reasoning string).
+        """
+        try:
+            sample = df.head(5).to_string(index=False) if not df.empty else "(no rows returned)"
+
+            prompt = f"""You are evaluating a Text-to-SQL system. Score how well the SQL query answers the user's question.
+
+User Question: "{question}"
+
+Generated SQL:
+{sql}
+
+Database Schema (relevant tables):
+{schema[:2000]}
+
+Query Result Sample ({len(df)} total rows):
+{sample}
+
+Evaluate on these criteria:
+1. CORRECTNESS: Does the SQL logic correctly answer what was asked? (Are JOINs, WHERE, GROUP BY correct?)
+2. COMPLETENESS: Does it return all the information the user asked for?
+3. SAFETY: Does it use NULLIF/COALESCE to handle edge cases like division by zero or NULLs?
+4. RESULT QUALITY: Do the returned results look reasonable and meaningful?
+
+Respond with EXACTLY this format (no extra text):
+SCORE: <number 0-100>
+REASON: <one sentence explaining the score>"""
+
+            response = self._call_llm(
+                "You are a strict SQL evaluation judge. Be precise and critical.",
+                prompt,
+            )
+
+            # Parse the score and reason from the response
+            score = 0
+            reason = ""
+            for line in response.strip().split("\n"):
+                line = line.strip()
+                if line.upper().startswith("SCORE:"):
+                    try:
+                        score = int(line.split(":", 1)[1].strip().split()[0])
+                        score = max(0, min(100, score))  # Clamp to 0-100
+                    except (ValueError, IndexError):
+                        score = 50  # Default if parsing fails
+                elif line.upper().startswith("REASON:"):
+                    reason = line.split(":", 1)[1].strip()
+
+            if not reason:
+                reason = "Evaluation completed."
+
+            logger.info(f"Query eval: score={score}, reason={reason}")
+            return score, reason
+
+        except Exception as e:
+            logger.warning(f"Query evaluation failed (non-fatal): {e}")
+            return 0, ""
+
     def answer(
         self,
         question: str,
@@ -447,6 +534,12 @@ Do not explain the SQL. Just answer the question naturally."""
                 chart_type = detect_chart_type(df)
                 latency = (time.time() - start) * 1000
 
+                # Evaluate query accuracy
+                confidence_score, eval_reasoning = self.evaluate_query(
+                    question, clean_sql, schema, df
+                )
+                latency = (time.time() - start) * 1000  # Re-measure to include eval time
+
                 return AgentResponse(
                     question=question,
                     sql=clean_sql,
@@ -455,6 +548,8 @@ Do not explain the SQL. Just answer the question naturally."""
                     chart_type=chart_type,
                     retries=retries,
                     latency_ms=latency,
+                    confidence_score=confidence_score,
+                    eval_reasoning=eval_reasoning,
                 )
 
             except (SQLAlchemyError, TimeoutError) as e:
