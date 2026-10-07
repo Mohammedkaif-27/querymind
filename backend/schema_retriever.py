@@ -153,13 +153,19 @@ def _get_chroma_client():
     if chroma_url:
         # Production: connect to a Chroma server
         logger.info(f"Connecting to Chroma server at {chroma_url}")
-        _chroma_client = chromadb.HttpClient(host=chroma_url)
+        _chroma_client = chromadb.HttpClient(
+            host=chroma_url,
+            settings=chromadb.config.Settings(anonymized_telemetry=False)
+        )
     else:
         # Local dev: persistent storage in embeddings/ directory
         persist_dir = os.path.join(_PROJECT_ROOT, "embeddings", "chroma_db")
         os.makedirs(persist_dir, exist_ok=True)
         logger.info(f"Using persistent Chroma at {persist_dir}")
-        _chroma_client = chromadb.PersistentClient(path=persist_dir)
+        _chroma_client = chromadb.PersistentClient(
+            path=persist_dir,
+            settings=chromadb.config.Settings(anonymized_telemetry=False)
+        )
     return _chroma_client
 
 
